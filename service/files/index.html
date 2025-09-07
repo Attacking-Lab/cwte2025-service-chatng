@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>ChatNG – Your NextGen Chat</title>
+	<link rel="stylesheet" href="./static/style.css">
+</head>
+<body>
+	<header>
+		<h1>ChatNG <span class="pill" id="version">web</span></h1>
+		<div class="status">
+			<span id="connStatus">Disconnected</span>
+			<span class="pill" id="whoami" title="Logged-in user"></span>
+		</div>
+	</header>
+
+	<main>
+		<section class="card">
+			<input id="apiBase" placeholder="API base (e.g., https://yourdomain)" hidden="hidden" />
+
+			<div id="side-logged-out">
+				<h2>Authentication</h2>
+				<div class="stack" id="authForms">
+					<div class="row">
+						<input id="regUser" placeholder="new username" />
+						<input id="regPass" placeholder="new password" type="password" />
+					</div>
+					<button id="btnRegister">Register</button>
+
+					<div class="row">
+						<input id="loginUser" placeholder="username" />
+						<input id="loginPass" placeholder="password" type="password" />
+					</div>
+					<button id="btnLogin">Login</button>
+					<div class="muted" id="authMsg"></div>
+				</div>
+			</div>
+
+			<div id="side-logged-in">
+
+				<h2>Search</h2>
+				<div class="stack">
+					<input id="searchQ" placeholder="Search messages (regex supported)" />
+					<button id="btnSearch">Search</button>
+				</div>
+
+				<hr class="line"/>
+
+				<h2>Create Bot</h2>
+				<div class="stack">
+					<div class="row">
+						<input id="botName" placeholder="bot name" />
+						<input id="botToken" placeholder="token" />
+					</div>
+					<button id="btnCreate">Create</button>
+					<div class="muted" id="botMsg"></div>
+				</div>
+
+				<hr class="line"/>
+
+				<h2>File Upload</h2>
+				<div class="stack">
+					<input id="fileInput" type="file" />
+					<button id="btnUpload">Upload</button>
+					<div class="muted" id="fileMsg"></div>
+				</div>
+
+				<hr class="line"/>
+
+				<div class="stack">
+					<button id="btnRefresh">Refresh Inbox</button>
+					<select id="autoRefresh">
+						<option value="0" selected>Auto: off</option>
+						<option value="10000">Auto: 10s</option>
+						<option value="15000">Auto: 15s</option>
+						<option value="30000">Auto: 30s</option>
+					</select>
+
+					<button id="btnLogout">Logout</button>
+				</div>
+
+				<hr class="line"/>
+
+				<div class="stack">
+					<div class="muted" id="friends"></div>
+				</div>
+
+			</div>
+		</section>
+
+		<section class="card" id="chat-card">
+			<h2>Chat</h2>
+			<div class="stack">
+				<div class="row" style="grid-template-columns: 1fr 4fr;">
+					<div id="chat-folders" class="chat-folders"></div>
+					<div id="inbox" class="messages"></div>
+				</div>
+				<div class="row" style="grid-template-columns: 1fr 3fr 1fr;">
+					<input id="toUser" placeholder="Receiver username (human or bot)" />
+					<input id="msgText" placeholder="Type a message..." />
+					<button id="btnSend">Send</button>
+				</div>
+			</div>
+		</section>
+	</main>
+
+	<footer>ChatNG – Your NextGen Chat by <a href="https://github.com/GramThanos" target="_blank">GramThanos</a></footer>
+	<script src="static/chat.js"></script>
+</body>
+</html>

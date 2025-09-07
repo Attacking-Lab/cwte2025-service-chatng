@@ -1,0 +1,59 @@
+services:
+  proxy:
+    container_name: chatng-proxy
+    image: nginx:1.25-alpine
+    volumes:
+      - ./files/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./files:/data/files:ro
+      - ./files/index.html:/usr/share/nginx/html/index.html:ro
+    ports:
+      - "3443:443"
+    restart: always
+
+  backend:
+    container_name: chatng-backend
+    build: ./backend
+    environment:
+      - DB_HOST=db
+      - DB_PORT=27017
+      - DB_NAME=chat
+      - SECRET_JWT=h4v3-y0u-m3t-n1s4-th3-c4t
+      - FEED_SHARE_KEY=da-pUm4s-ar3hEr3
+      - UPLOADS_DIR=/data/files/uploads
+      - BOTS_DIR=/data/files/bots
+    volumes:
+      - ./files:/data/files
+    expose:
+      - "3080:8080/tcp"
+    restart: always
+    depends_on:
+      - db
+
+  mng:
+    container_name: chatng-mng
+    build: ./mng
+    environment:
+      - BOTS_DIR=/data/files/bots
+    volumes:
+      - ./files:/data/files
+    ports:
+      - "31337:9000/tcp"
+    restart: always
+    depends_on:
+      - db
+
+  db:
+    container_name: chatng-db
+    image: mongo:6.0
+    environment:
+      - MONGO_INITDB_DATABASE=chatng
+    volumes:
+      - dbdata:/data/db
+    restart: always
+networks:
+  default:
+    name: chatng
+volumes:
+  dbdata:
+    name: chatng-database
