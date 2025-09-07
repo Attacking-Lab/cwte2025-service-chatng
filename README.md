@@ -32,24 +32,31 @@ The second flag store is on the codes of the bots.
 Vulnerabilities
 ---------------
 
-    <!--
-    Provide a high-level description of the vulnerabilities affecting each flag
-    store. Include a proof-of-concept of the exploit, or - if this is not possible -
-    a description of the attack flow. For each *vulnerability*, specify the intended
-    difficulty level of the exploit, its *discoverability* by inspecting traffic
-    dumps, etc., and *patchability*. Accepted values are *easy*, *medium*, *hard*.
-    Vulnerabilities that are easy to exploit should be also easy to patch. On the
-    other hand, it is fine to require more complex patches if the difficulty is also
-    hard. It is also fine to keep the pathcability as easy if the discoverability is
-    hard. Concerning discoverability, as a rule of thumb, there are 3 cases: *easy*,
-    the exploit can be easily identified and reflected; *medium*, the exploit can be
-    easily identified, but reflection is not trivial; *hard*, when identification
-    and especially reflection are unlikely to be possible, e.g., if the connection
-    is encrypted. We perfectly understand that precisely defining all possible
-    vulnerabilities at this stage is difficult, but it's important to incorporate
-    them during the design phase instead of adding some vulnerabilities at the end
-    of the development
-    -->
+Overview of the vulnerabilities:
+
+- Flagstore 1
+    - shared flask session key for all instances
+        - forge flask session and login as user to see his/her notes
+    - shared key for sharing feed of messages
+        - forge share code to get list of messages
+    - bit flip on chared codes to change target's user's username and generate valid code
+        - brute force share code to get list of messages
+    - vulnerable search
+        - override search parameters to get messages of other users
+- Flagstore 2
+    - backdoor in mng
+        - Send `AUTHEN botname n1s4_w4s_HEr3?` to authenticate
+        - Send `GETCODE`
+    - vulnerability in mng
+        - Send `AUTHEN botname <first letter of token>` to authenticate
+        - Send `GETCODE`
+    - vulnerability in storing bot info
+        - Create bot with JSON injection in token value to override bot name `token","name":"targetbotname`
+        - Upload valid bot code with `debug` command
+        - Execute `debug` command to load the code of another bot
+    - vulnerability on proxy (path traversal)
+        - /static../bots/botname.code
+
 
 ### Flag Store 1, Vuln 1
 
