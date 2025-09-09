@@ -1,6 +1,7 @@
 from enochecker3.chaindb import ChainDB
 from enochecker3.enochecker import Enochecker
 from enochecker3.types import (
+    BaseCheckerTaskMessage,
     ExploitCheckerTaskMessage,
     GetflagCheckerTaskMessage,
     InternalErrorException,
@@ -8,33 +9,33 @@ from enochecker3.types import (
     PutflagCheckerTaskMessage,
 )
 from enochecker3.utils import FlagSearcher, assert_in
-from typeguard import check_type
 from typing import Optional, Callable
 from httpx import AsyncClient, Response
 from logging import LoggerAdapter
 
-checker = Enochecker("ChatNG", 3443)
+from bots import getRandomizedBot
+
+class EnocheckerPatched(Enochecker):
+    def _get_http_client(self, task: BaseCheckerTaskMessage) -> AsyncClient:
+        return AsyncClient(
+            base_url=f"https://{task.address}:{self.service_port}", verify=False
+        )
+
+checker = EnocheckerPatched("ChatNG", 3443)
 app = lambda: checker.app
 
 import os
+import json
+import base64
 import traceback
 
-from pwn import remote, context
-context.timeout = 10
-context.log_level = 'error'
-
+import socket
+Socket = socket.socket
 import random
 import string
 import hashlib
-CHECKER_ENTROPY_SECRET_SEED = 'Th4N0s_m4De_th1s_FoR-T34m_GRe3Ce__ChatNG'
+CHECKER_ENTROPY_SECRET_SEED = 'Th4N0s_m4De_th1s_FoR-T34m_Eur0p3__ChatNG'
 ALNUM = string.ascii_letters + string.digits
-
-#random.seed(int.from_bytes(os.urandom(16), "little"))
-#
-#noise_alph = string.ascii_letters + string.digits
-#def noise(nmin: int, nmax: int) -> str:
-#    n = random.randint(nmin, nmax)
-#    return "".join(random.choice(noise_alph) for _ in range(n))
 
 
 class RandomGenerator:
@@ -51,6 +52,12 @@ class RandomGenerator:
 
     def genInt(self, min_val=0, max_val=100):
         return self.random.randint(min_val, max_val)
+
+    def choice(self, options):
+        return self.random.choice(options)
+
+    def boolean(self):
+        return self.random.choice([True, False])
 
 
 def assert_status_code(logger: LoggerAdapter, r: Response, code: int = 200, parse: Optional[Callable[[str], str]] = None) -> None:
@@ -90,7 +97,7 @@ async def do_login(logger: LoggerAdapter, client: AsyncClient, username: str, pa
     assert_status_code(logger, r, code=200)
     data = r.json()
 
-    if not 'username' in data or not 'token' in data or username != data:
+    if not 'username' in data or not 'token' in data or username != data['username']:
         logger.error(f"Bad response code during {r.request.method} {r.request.url.path}: " + f"\n{data}")
         raise MumbleException(f"Invalid login response")
 
@@ -118,7 +125,7 @@ async def do_send(logger: LoggerAdapter, client: AsyncClient, receiver: str, tex
         "receiver": receiver,
         "text": text
     }
-    r = await client.post("/api/chat/inbox", headers={'authorization': token}, json=data)
+    r = await client.post("/api/chat/send", headers={'authorization': token}, json=data)
     assert_status_code(logger, r, code=200)
     data = r.json()
     if not 'msg' in data or data['msg'] != "Message sent":
@@ -127,8 +134,8 @@ async def do_send(logger: LoggerAdapter, client: AsyncClient, receiver: str, tex
 
 async def do_register_bot(logger: LoggerAdapter, client: AsyncClient, botName: str, botToken: str, token: str) -> None:
     data = {
-        "token": botName,
-        "username": botToken
+        "token": botToken,
+        "username": botName
     }
     r = await client.post("/api/auth/register_bot", headers={'authorization': token}, json=data)
     assert_status_code(logger, r, code=200)
@@ -137,15 +144,81 @@ async def do_register_bot(logger: LoggerAdapter, client: AsyncClient, botName: s
         logger.error(f"Bad server response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
         raise MumbleException(f"Failed to parse bot register response")
 
+def recvuntil(socket: Socket, delimiter: bytes, max_buffer: int = 10240, buffer_size: int = 1024) -> bytes:
+    buffer = b""
+
+    while delimiter not in buffer:
+        if len(buffer) > max_buffer:
+            raise RuntimeError(f"Buffer exceeded {max_buffer} bytes without finding delimiter")
+    
+        chunk = socket.recv(buffer_size)
+        if not chunk:
+            break
+        buffer += chunk
+
+    return buffer
+
+def do_socket_connect(logger: LoggerAdapter, address: str) -> Socket:
+    try:
+        s = socket.create_connection((address, 31337))
+        s.settimeout(5)
+        return s
+    except Exception as e:
+        logger.error(f"Failed to start a socket with the mng service: " + f"\n{e}")
+        raise MumbleException(f"Failed to connect to mng")
+
+def do_socket_auth(logger: LoggerAdapter, socket: Socket, botName: str, botToken: str) -> None:
+    data = None
+    try:
+        socket.sendall(b'AUTHEN ' + botName.encode() + b' ' + botToken.encode() + b'\n')
+        data = recvuntil(socket, b'\n')
+    except Exception as e:
+        logger.error(f"Failed to send AUTHEN command to the mng service: " + f"\n{e}")
+        raise MumbleException(f"Failed to authenticate to mng")
+    if data != b'OK authenticated\n':
+        logger.error(f"Authentication using the AUTHEN command to the mng service failed: " + f"\n{data}")
+        raise MumbleException(f"Failed to authenticate to mng")
+
+def do_socket_setcode(logger: LoggerAdapter, socket: Socket, code: dict) -> None:
+    data = None
+    try:
+        code = base64.b64encode(json.dumps(code).encode())
+        socket.sendall(b'SETCODE ' + code + b'\n')
+        data = recvuntil(socket, b'\n')
+    except Exception as e:
+        logger.error(f"Failed to send SETCODE command to the mng service: " + f"\n{e}")
+        raise MumbleException(f"Failed to set bot code through mng")
+    if data != b'OK code saved\n':
+        logger.error(f"Setting bot code using the SETCODE command through the mng service failed: " + f"\n{data}")
+        raise MumbleException(f"Failed to set bot code through mng")
+
+def do_socket_getcode(logger: LoggerAdapter, socket: Socket) -> dict:
+    data = None
+    try:
+        socket.sendall(b'GETCODE' + b'\n')
+        data = recvuntil(socket, b'\n')
+    except Exception as e:
+        logger.error(f"Failed to send SETCODE command to the mng service: " + f"\n{e}")
+        raise MumbleException(f"Failed to get bot code through mng")
+    try:
+        data = base64.b64decode(data).decode('utf-8')
+    except Exception as e:
+        logger.error(f"Failed decode code recovered from SETCODE command on the mng service: " + f"\n{data}")
+        raise MumbleException(f"Failed to get bot code through mng")
+
+    return data
+
+
+
 @checker.putflag(0)
 async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> str:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store1|{task.id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store1|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    _ = await do_register(logger, client, username, password)
+    await do_register(logger, client, username, password)
 
     token = await do_login(logger, client, username, password)
-    message = random.choice(["TODO", "Note for me", "📝", "✍️"]) + " " + task.flag
+    message = gen.choice(["TODO", "Note for me", "📝", "✍️"]) + " " + task.flag
     await do_send(logger, client, username, message, token)
 
     data = {
@@ -153,29 +226,122 @@ async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
         "password": password,
         "token": token,
     }
-    await db.set("info", json.dumps(data))
+    await db.set("info_flagstore1", json.dumps(data))
     return username
 
 @checker.getflag(0)
 async def getflag_store1(task: GetflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
     try:
-        data = await db.get("info")
+        data = await db.get("info_flagstore1")
         data = json.loads(data)
     except KeyError:
         raise MumbleException("Database info missing")
+
+    username = data['username']
+    password = data['password']
+    token = data['token']
+
+    # Randomly re-login
+    if (random.getrandbits(1)):
+        token = await do_login(logger, client, username, password)
     
     r = await client.get("/api/chat/inbox", headers={'authorization': token})
     assert_status_code(logger, r, code=200)
-    assert_in(task.flag, r.text, "Flag missing")
+
+    msgs = None
+    try:
+        msgs = r.json()
+        msgs = ' '.join([(msg['text'] if 'text' in msg else '-') for msg in msgs])
+    except Exception as e:
+        raise MumbleException("Invalid inbox response")
+
+    assert_in(task.flag, msgs, "Flag missing")
 
 @checker.putflag(1)
 async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> str:
-    # TODO
-    return 'testing'
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
+    username = gen.genStr(gen.genInt(8,12))
+    password = gen.genStr(gen.genInt(12,16))
+    botname = gen.choice(["bot","Bot", "b0t", "ai", "AI"]) + gen.genStr(gen.genInt(8,12))
+    bottoken = gen.genStr(gen.genInt(32,64))
+
+    await do_register(logger, client, username, password)
+    token = await do_login(logger, client, username, password)
+
+    await do_register_bot(logger, client, botname, bottoken, token)
+
+    socket = do_socket_connect(logger, task.address)
+    do_socket_auth(logger, socket, botname, bottoken)
+
+    code = getRandomizedBot(gen)
+    code[gen.genStr(gen.genInt(12,16))] = task.flag
+    do_socket_setcode(logger, socket, code)
+
+    data = {
+        "username": username,
+        "password": password,
+        "token": token,
+        "botname": botname,
+        "bottoken": bottoken
+    }
+    await db.set("info_flagstore2", json.dumps(data))
+    return username
 
 @checker.getflag(1)
 async def getflag_store2(task: GetflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
-    # TODO
+    try:
+        data = await db.get("info_flagstore2")
+        data = json.loads(data)
+    except KeyError:
+        raise MumbleException("Database info missing")
+
+    botname = data['botname']
+    bottoken = data['bottoken']
+
+    socket = do_socket_connect(logger, task.address)
+    do_socket_auth(logger, socket, botname, bottoken)
+    code = do_socket_getcode(logger, socket)
+
+    text = None
+    try:
+        code = json.loads(code)
+        text = ' '.join([v for v in code.values() if isinstance(v, str)])
+    except Exception as e:
+        raise MumbleException("Invalid bot code returned")
+    
+    assert_in(task.flag, text, "Flag missing")
+
+@checker.putnoise(0)
+async def putnoise_store1(logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
+    pass
+
+@checker.getnoise(0)
+async def getnoise_store1(logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
+    pass
+
+@checker.putnoise(1)
+async def putnoise_store2(logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
+    pass
+
+@checker.getnoise(1)
+async def getnoise_store2(logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
+    pass
+
+@checker.havoc(0)
+async def havoc_store1(logger: LoggerAdapter, client: AsyncClient) -> None:
+    pass
+
+@checker.havoc(1)
+async def havoc_store2(logger: LoggerAdapter, client: AsyncClient) -> None:
+    pass
+
+@checker.exploit(0)
+async def exploit_store1_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+    pass
+
+@checker.exploit(1)
+async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+    pass
 
 '''
 # TODO

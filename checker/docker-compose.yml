@@ -3,7 +3,7 @@ services:
     container_name: chatng-checker
     build: .
     ports:
-      - 1813:1813
+      - 1813:9000
     environment:
       - MONGO_ENABLED=1
       - MONGO_HOST=mongo
@@ -11,7 +11,7 @@ services:
       - MONGO_USER=chatng_checker
       - MONGO_PASSWORD=chatng_checker
   mongo:
-    container_name: fireworx-mongo
+    container_name: chatng-mongo
     image: mongo
     command: mongod --port 1814
     volumes:
