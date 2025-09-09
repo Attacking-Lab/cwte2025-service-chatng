@@ -28,22 +28,21 @@ import os
 import json
 import base64
 import traceback
+from random import Random
 
 import socket
 Socket = socket.socket
 import random
 import string
 import hashlib
+
 CHECKER_ENTROPY_SECRET_SEED = 'Th4N0s_m4De_th1s_FoR-T34m_Eur0p3__ChatNG'
 ALNUM = string.ascii_letters + string.digits
 
 
 class RandomGenerator:
-    def __init__(self, seed=None):
-        seed = str(seed).encode("utf-8")
-        seed = hashlib.sha256(seed).hexdigest()
-        seed = int(seed, 16)
-        self.random = random.Random(seed)
+    def __init__(self, random):
+        self.random = random
 
     def genStr(self, length=8, dictionary=None):
         if not dictionary:
@@ -58,6 +57,11 @@ class RandomGenerator:
 
     def boolean(self):
         return self.random.choice([True, False])
+
+
+@checker.register_dependency
+def inject_rng(random: Random) -> RandomGenerator:
+    return RandomGenerator(random)
 
 
 def assert_status_code(logger: LoggerAdapter, r: Response, code: int = 200, parse: Optional[Callable[[str], str]] = None) -> None:
@@ -211,8 +215,7 @@ def do_socket_getcode(logger: LoggerAdapter, socket: Socket) -> dict:
 
 
 @checker.putflag(0)
-async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> str:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store1|{task.task_id}")
+async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB, gen: RandomGenerator) -> str:
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     await do_register(logger, client, username, password)
@@ -258,8 +261,7 @@ async def getflag_store1(task: GetflagCheckerTaskMessage, logger: LoggerAdapter,
     assert_in(task.flag, msgs, "Flag missing")
 
 @checker.putflag(1)
-async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> str:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
+async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB, gen: RandomGenerator) -> str:
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.choice(["bot","Bot", "b0t", "ai", "AI"]) + gen.genStr(gen.genInt(8,12))
