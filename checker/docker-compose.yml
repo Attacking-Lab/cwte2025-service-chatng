@@ -3,17 +3,19 @@ services:
     container_name: chatng-checker
     build: .
     ports:
-      - 1813:9000
+      - 9000:9000
     environment:
       - MONGO_ENABLED=1
       - MONGO_HOST=mongo
-      - MONGO_PORT=1814
+      - MONGO_PORT=27017
       - MONGO_USER=chatng_checker
       - MONGO_PASSWORD=chatng_checker
   mongo:
     container_name: chatng-mongo
     image: mongo
-    command: mongod --port 1814
+    command: mongod --port 27017
+    ports:
+      - 27017:27017
     volumes:
       - data:/data/db
     environment:
