@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import json
+import base64
 import datetime
 from itertools import takewhile
 
@@ -129,7 +130,7 @@ def bot_action(session, action, params, state):
             if not os.path.isfile(file_path):
                 return 'Failed to debug', state
             try:
-                reply = open(path, 'r').read()
+                reply = open(file_path, 'r').read()
                 return (base64.b64encode(reply.encode('utf-8')).decode('utf-8') + '\n'), state
             except Exception as e:
                 return 'Failed to debug', state
