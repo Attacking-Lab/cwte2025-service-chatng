@@ -124,12 +124,19 @@ static char *base64_encode(const unsigned char *in, size_t in_len, size_t *out_l
 
         out[j++] = b64_table[(triple >> 18) & 0x3F];
         out[j++] = b64_table[(triple >> 12) & 0x3F];
-        out[j++] = (i > in_len + 1) ? '=' : b64_table[(triple >> 6) & 0x3F];
-        out[j++] = (i > in_len)     ? '=' : b64_table[triple & 0x3F];
+        out[j++] = (i - 2 > in_len) ? '=' : b64_table[(triple >> 6) & 0x3F];
+        out[j++] = (i - 1 > in_len) ? '=' : b64_table[triple & 0x3F];
     }
 
-    out[j] = '\0';
-    if (out_len) *out_len = j;
+    // Correct padding for last block
+    size_t mod = in_len % 3;
+    if (mod) {
+        out[olen - 1] = '=';
+        if (mod == 1) out[olen - 2] = '=';
+    }
+
+    out[olen] = '\0';
+    if (out_len) *out_len = olen;
     return out;
 }
 
