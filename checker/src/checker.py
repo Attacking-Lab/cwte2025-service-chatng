@@ -819,6 +819,17 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (shared code forge) for flagstore 1 failed")
 
+@checker.exploit(2)
+async def exploit_store1_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+    # other
+    pass
+
+@checker.exploit(3)
+async def exploit_store1_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+    # other
+    pass
+
+
 '''
 2nd flag store (flag in bot's code)
 - backdoor in mng
@@ -834,7 +845,7 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 - vulnerability on proxy (path traversal)
 	- /static../bots/botname.code
 '''
-@checker.exploit(2)
+@checker.exploit(4)
 async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: path traversal in nginx to access bot code and recover flag
 
@@ -861,7 +872,7 @@ async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (nginx path traversal) for flagstore 2 failed")
 
-@checker.exploit(3)
+@checker.exploit(5)
 async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: back door in mng to access bot code and recover flag
 
@@ -885,7 +896,7 @@ async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (mng backdoor) for flagstore 2 failed")
 
-@checker.exploit(4)
+@checker.exploit(6)
 async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: bot token match vulnerability in mng to access bot code and recover flag
 
@@ -920,11 +931,11 @@ async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     
     raise MumbleException("Exploit (mng backdoor) for flagstore 2 failed")
 
-@checker.exploit(5)
+@checker.exploit(7)
 async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: bot token json injection vulnerability in mng to access bot code and recover flag
 
-    botname = task.attack_info
+    target_botname = task.attack_info
     assert task.attack_info is not None
 
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store2_d|{task.task_id}")
@@ -936,7 +947,7 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     await do_register(logger, client, username, password)
     token = await do_login(logger, client, username, password)
 
-    await do_register_bot(logger, client, botname, bottoken, token + '","name":"' + botname)
+    await do_register_bot(logger, client, botname, bottoken + '","name":"' + target_botname, token)
 
     socket = do_socket_connect(logger, task.address)
     do_socket_auth(logger, socket, botname, bottoken)
