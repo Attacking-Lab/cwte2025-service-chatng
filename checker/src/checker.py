@@ -861,6 +861,10 @@ async def havoc_store2(task: HavocCheckerTaskMessage, logger: LoggerAdapter, cli
 
 
 
+#@checker.havoc(2)
+#async def havoc_store2_bot_functions(task: HavocCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient) -> None:
+#    pass
+#    #TODO
 
 '''
 1rst flag store
