@@ -1,3 +1,5 @@
+import sys
+import json
 from flask import Blueprint, request, jsonify, current_app
 from utils import verify_token
 
@@ -9,12 +11,11 @@ def search_messages():
     if not username:
         return jsonify({"msg": "Unauthorized"}), 401
 
-    text_query = request.json
+    text_query = json.loads(request.data.decode("utf-8"))
     if not 'text' in text_query:
         return jsonify({"msg": "Invalid request"}), 401
-
-    if '(' in str(text_query):
-        print(str(text_query), file=sys.stderr)
+        
+    if '(' in json.dumps(text_query):
         return jsonify({"msg": "Parentheses are not allowed in search"}), 401
 
     results = list(current_app.mongo.db.messages.find({"$or": [{"sender": username}, {"receiver": username}], **text_query}))
