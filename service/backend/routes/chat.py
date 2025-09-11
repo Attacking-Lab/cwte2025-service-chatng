@@ -90,10 +90,19 @@ def shared_feed(code):
     except Exception as e:
         return jsonify({"msg": "Invalid or corrupted link"}), 400
 
-    msgs = list(current_app.mongo.db.messages.find({
-        "receiver": receiver,
-        "sender": sender
-    }))
+    msgs = None
+    if sender == receiver:
+        msgs = list(current_app.mongo.db.messages.find({
+            "receiver": receiver,
+            "sender": sender
+        }))
+    else:
+        msgs = list(current_app.mongo.db.messages.find({
+            "$or": [
+                {"receiver": receiver, "sender": sender},
+                {"receiver": sender, "sender": receiver}
+            ]
+        }))
     return jsonify(msgs)
 
 @chat_bp.route("/share", methods=["POST"])
@@ -121,4 +130,4 @@ def share_feed():
 
     code = encrypt_data(share_data, FEED_SHARE_KEY)
     url = url_for("chat.shared_feed", code=code)
-    return jsonify({"url": url})
+    return jsonify({"msg": "Share url generated successfully", "url": url})
