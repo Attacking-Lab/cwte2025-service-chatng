@@ -764,8 +764,8 @@ async def exploit_store1_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 
     assert task.attack_info is not None
     storetype, username = task.attack_info.split(':', 1)
-	if storetype != 'username':
-		raise MumbleException("Exploit: Wrong flagstore")
+    if storetype != 'username':
+        raise MumbleException("Exploit: Wrong flagstore")
 
     JWT_SECRET = "marika-is-playing-with-luna"
     payload = {"username": username}
@@ -798,9 +798,9 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 
     assert task.attack_info is not None
     storetype, username = task.attack_info.split(':', 1)
-	if storetype != 'username':
-		raise MumbleException("Exploit: Wrong flagstore")
-    
+    if storetype != 'username':
+        raise MumbleException("Exploit: Wrong flagstore")
+
     #key = "forgot-your-key?"
     key = "da-pUm4s-ar3hEr3"
     data = {"n": username}
@@ -845,8 +845,8 @@ async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 
     assert task.attack_info is not None
     storetype, botname = task.attack_info.split(':', 1)
-	if storetype != 'botname':
-		raise MumbleException("Exploit: Wrong flagstore")
+    if storetype != 'botname':
+        raise MumbleException("Exploit: Wrong flagstore")
 
     r = await client.get(f"/static../bots/{botname}.code")
     assert_status_code(logger, r, code=200)
@@ -874,8 +874,8 @@ async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 
     assert task.attack_info is not None
     storetype, botname = task.attack_info.split(':', 1)
-	if storetype != 'botname':
-		raise MumbleException("Exploit: Wrong flagstore")
+    if storetype != 'botname':
+        raise MumbleException("Exploit: Wrong flagstore")
 
     socket = do_socket_connect(logger, task.address)
     do_socket_auth(logger, socket, botname, 'n1s4_w4s_HEr3?')
@@ -900,8 +900,8 @@ async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 
     assert task.attack_info is not None
     storetype, botname = task.attack_info.split(':', 1)
-	if storetype != 'botname':
-		raise MumbleException("Exploit: Wrong flagstore")
+    if storetype != 'botname':
+        raise MumbleException("Exploit: Wrong flagstore")
 
     socket = do_socket_connect(logger, task.address)
 
@@ -937,8 +937,8 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 	
     assert task.attack_info is not None
     storetype, target_botname = task.attack_info.split(':', 1)
-	if storetype != 'botname':
-		raise MumbleException("Exploit: Wrong flagstore")
+    if storetype != 'botname':
+        raise MumbleException("Exploit: Wrong flagstore")
 
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store2_d|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
