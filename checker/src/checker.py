@@ -360,7 +360,7 @@ async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
         "token": token,
     }
     await db.set("info_flagstore1", json.dumps(data))
-    return username
+    return ('username:' + username)
 
 @checker.getflag(0)
 async def getflag_store1(task: GetflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
@@ -398,7 +398,7 @@ async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["bot","Bot", "b0t", "ai", "AI"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botflagkey = gen.genStr(gen.genInt(6,14))
     code = getRandomizedBot(gen)
@@ -422,14 +422,14 @@ async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
     #    "bottoken": bottoken
     #}
     #await db.set("info_flagstore2", json.dumps(data))
-    return botname
+    return ('botname:' + botname)
 
 @checker.getflag(1)
 async def getflag_store2(task: GetflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["bot","Bot", "b0t", "ai", "AI"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botflagkey = gen.genStr(gen.genInt(6,14))
 
@@ -602,7 +602,7 @@ async def putnoise_store2(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapte
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["bot","Bot", "b0t", "ai", "AI"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botnoisekey = gen.genStr(gen.genInt(6,14))
     botnoisevalue = gen.genStr(gen.genInt(6,22))
@@ -635,7 +635,7 @@ async def getnoise_store2(task: GetnoiseCheckerTaskMessage, logger: LoggerAdapte
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
-    botname = gen.choice(["bot","Bot", "b0t", "ai", "AI"]) + gen.genStr(gen.genInt(8,12))
+    botname = gen.choice(["grof-", "genimi-", "ripbard-", "chatgtp-", "oh4-", "cocapten-"]) + gen.genStr(gen.genInt(8,12))
     bottoken = gen.genStr(gen.genInt(32,64))
     botnoisekey = gen.genStr(gen.genInt(6,14))
     botnoisevalue = gen.genStr(gen.genInt(6,22))
@@ -762,8 +762,10 @@ async def exploit_store1_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     # Exploit: forge a session token to impersonate the victim user and read their messages
     # This assumes the session token is a JWT with {"username": username} and a known secret
 
-    username = task.attack_info
     assert task.attack_info is not None
+    storetype, username = task.attack_info.split(':', 1)
+	if storetype != 'username':
+		raise MumbleException("Exploit: Wrong flagstore")
 
     JWT_SECRET = "marika-is-playing-with-luna"
     payload = {"username": username}
@@ -794,8 +796,10 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     # Exploit: forge a shared code to recover a victim user's inbox
     # This assumes a known secret is used
 
-    username = task.attack_info
     assert task.attack_info is not None
+    storetype, username = task.attack_info.split(':', 1)
+	if storetype != 'username':
+		raise MumbleException("Exploit: Wrong flagstore")
     
     #key = "forgot-your-key?"
     key = "da-pUm4s-ar3hEr3"
@@ -819,16 +823,6 @@ async def exploit_store1_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (shared code forge) for flagstore 1 failed")
 
-@checker.exploit(2)
-async def exploit_store1_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
-    # other
-    pass
-
-@checker.exploit(3)
-async def exploit_store1_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
-    # other
-    pass
-
 
 '''
 2nd flag store (flag in bot's code)
@@ -845,12 +839,14 @@ async def exploit_store1_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 - vulnerability on proxy (path traversal)
 	- /static../bots/botname.code
 '''
-@checker.exploit(4)
+@checker.exploit(2)
 async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: path traversal in nginx to access bot code and recover flag
 
-    botname = task.attack_info
     assert task.attack_info is not None
+    storetype, botname = task.attack_info.split(':', 1)
+	if storetype != 'botname':
+		raise MumbleException("Exploit: Wrong flagstore")
 
     r = await client.get(f"/static../bots/{botname}.code")
     assert_status_code(logger, r, code=200)
@@ -872,12 +868,14 @@ async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (nginx path traversal) for flagstore 2 failed")
 
-@checker.exploit(5)
+@checker.exploit(3)
 async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: back door in mng to access bot code and recover flag
 
-    botname = task.attack_info
     assert task.attack_info is not None
+    storetype, botname = task.attack_info.split(':', 1)
+	if storetype != 'botname':
+		raise MumbleException("Exploit: Wrong flagstore")
 
     socket = do_socket_connect(logger, task.address)
     do_socket_auth(logger, socket, botname, 'n1s4_w4s_HEr3?')
@@ -896,12 +894,14 @@ async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         return flag
     raise MumbleException("Exploit (mng backdoor) for flagstore 2 failed")
 
-@checker.exploit(6)
+@checker.exploit(4)
 async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: bot token match vulnerability in mng to access bot code and recover flag
 
-    botname = task.attack_info
     assert task.attack_info is not None
+    storetype, botname = task.attack_info.split(':', 1)
+	if storetype != 'botname':
+		raise MumbleException("Exploit: Wrong flagstore")
 
     socket = do_socket_connect(logger, task.address)
 
@@ -931,12 +931,14 @@ async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     
     raise MumbleException("Exploit (mng backdoor) for flagstore 2 failed")
 
-@checker.exploit(7)
+@checker.exploit(5)
 async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapter, searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     # Exploit: bot token json injection vulnerability in mng to access bot code and recover flag
-
-    target_botname = task.attack_info
+	
     assert task.attack_info is not None
+    storetype, target_botname = task.attack_info.split(':', 1)
+	if storetype != 'botname':
+		raise MumbleException("Exploit: Wrong flagstore")
 
     gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store2_d|{task.task_id}")
     username = gen.genStr(gen.genInt(8,12))
@@ -980,3 +982,4 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 
 if __name__ == "__main__":
     checker.run()
+
