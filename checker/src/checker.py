@@ -228,8 +228,8 @@ async def do_register_bot_if_not_exists(logger: LoggerAdapter, client: AsyncClie
     if verify:
         try:
             data = r.json()
-        except Exception as e:
-            logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: " + f"\n{e}")
+        except Exception:
+            logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: \n{r.text}")
             raise MumbleException(f"Failed to parse bot register response")
         if not 'msg' in data or not (data['msg'] == "Bot created" or data['msg'] == "Bot name exists"):
             logger.error(f"Bad server response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
