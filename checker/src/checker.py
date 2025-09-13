@@ -42,7 +42,7 @@ SERVICE_NAME = "ChatNG"
 SERVICE_WEB_PORT = 3443
 SERVICE_TCP_PORT = 31337
 CHECKER_ENTROPY_SECRET_SEED = 'Th4N0s_m4De_th1s_FoR-T34m_Eur0p3__' + SERVICE_NAME
-
+CHECKER_SEED_KEY = 'current_round_id' # 'task_id'
 
 # Patch Enochecker to use HTTPS and disable SSL verification
 class EnocheckerPatched(Enochecker):
@@ -58,6 +58,8 @@ app = lambda: checker.app
 
 class RandomGenerator:
     def __init__(self, seed=None):
+        if seed is None:
+            seed = random.getrandbits(256)
         seed = str(seed).encode("utf-8")
         seed = hashlib.sha256(seed).hexdigest()
         seed = int(seed, 16)
@@ -110,6 +112,7 @@ async def do_register(logger: LoggerAdapter, client: AsyncClient, username: str,
         "username": username,
         "password": password
     }
+    logger.debug(f"Trying to register user: {username}:{password}")
     r = await client.post("/api/auth/register", json=data)
     if verify:
         assert_status_code(logger, r, code=200)
@@ -118,18 +121,20 @@ async def do_register(logger: LoggerAdapter, client: AsyncClient, username: str,
         try:
             data = r.json()
         except Exception as e:
-            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: " + f"\n{r.text}")
+            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: {username}:{password}" + f"\n{r.text}")
             raise MumbleException(f"Invalid register response")
         
         if not 'msg' in data or data['msg'] != "User created":
-            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
+            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: {username}:{password}" + f"\n{data}")
             raise MumbleException(f"Invalid register response")
+        logger.info(f"User was registered: {username}:{password}")
 
 async def do_register_if_not_exists(logger: LoggerAdapter, client: AsyncClient, username: str, password: str, verify=True) -> None:
     data = {
         "username": username,
         "password": password
     }
+    logger.debug(f"Trying to register user: {username}:{password}")
     r = await client.post("/api/auth/register", json=data)
     if verify:
         data = None
@@ -140,8 +145,10 @@ async def do_register_if_not_exists(logger: LoggerAdapter, client: AsyncClient, 
             raise MumbleException(f"Invalid register response")
         
         if not 'msg' in data or not (data['msg'] == "User created" or data['msg'] == "User exists"):
-            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: " + f"\n{data}")
+            logger.error(f"Bad response during {r.request.method} {r.request.url.path}: {username}:{password}" + f"\n{data}")
             raise MumbleException(f"Invalid register response")
+        if data['msg'] == "User exists":
+            logger.info(f"User was not registered as was already registered: {username}:{password}")
         return True if data['msg'] == "User created" else False
     return True
 
@@ -151,6 +158,7 @@ async def do_login(logger: LoggerAdapter, client: AsyncClient, username: str, pa
         "username": username,
         "password": password
     }
+    logger.debug(f"Trying to login user: {username}:{password}")
     r = await client.post("/api/auth/login", json=data)
     if verify:
         assert_status_code(logger, r, code=200)
@@ -159,13 +167,14 @@ async def do_login(logger: LoggerAdapter, client: AsyncClient, username: str, pa
     try:
         data = r.json()
     except Exception as e:
-        logger.error(f"Bad response during {r.request.method} {r.request.url.path}: " + f"\n{r.text}")
+        logger.error(f"Bad response during {r.request.method} {r.request.url.path}: {username}:{password}" + f"\n{r.text}")
         raise MumbleException(f"Invalid login response")
 
     if verify:
         if not 'username' in data or not 'token' in data or username != data['username']:
-            logger.error(f"Bad response code during {r.request.method} {r.request.url.path}: " + f"\n{data}")
+            logger.error(f"Bad response code during {r.request.method} {r.request.url.path}: {username}:{password}" + f"\n{data}")
             raise MumbleException(f"Invalid login response")
+        logger.info(f"User was loggedin: {username}:{password}")
 
     return data['token'] if data and 'token' in data else None
 
@@ -236,7 +245,6 @@ async def do_register_bot_if_not_exists(logger: LoggerAdapter, client: AsyncClie
             raise MumbleException(f"Failed to parse bot register response")
         return True if data['msg'] == "Bot created" else False
     return True
-
 
 async def do_add_friend(logger: LoggerAdapter, client: AsyncClient, username: str, token: str, verify=True) -> None:
     data = {
@@ -320,7 +328,6 @@ async def do_search(logger: LoggerAdapter, client: AsyncClient, data: dict, toke
         logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: " + f"\n{e}")
         raise MumbleException(f"Failed to parse search response")
 
-
 def do_socket_connect(logger: LoggerAdapter, address: str) -> Socket:
     try:
         s = socket.create_connection((address, 31337))
@@ -402,7 +409,7 @@ def do_socket_getcode(logger: LoggerAdapter, socket: Socket, verify=True) -> dic
 
 @checker.putflag(0)
 async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> str:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store1|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store1|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     await do_get_static(logger, client, quick=True)
@@ -422,11 +429,13 @@ async def putflag_store1(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
 
 @checker.getflag(0)
 async def getflag_store1(task: GetflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store1|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store1|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     token = None
 
+    token = await do_login(logger, client, username, password)
+    '''
     # Randomly re-login
     if (random.getrandbits(1)):
         token = await do_login(logger, client, username, password)
@@ -441,6 +450,7 @@ async def getflag_store1(task: GetflagCheckerTaskMessage, logger: LoggerAdapter,
         username = data['username']
         password = data['password']
         token = data['token']
+    '''
     
     msgs = await do_get_inbox(logger, client, token)
     try:
@@ -453,7 +463,7 @@ async def getflag_store1(task: GetflagCheckerTaskMessage, logger: LoggerAdapter,
 
 @checker.putflag(1)
 async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> str:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
@@ -487,7 +497,7 @@ async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
 
 @checker.getflag(1)
 async def getflag_store2(task: GetflagCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|flag_store2|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
@@ -599,7 +609,7 @@ NOISE_EMOJIS = ["😀", "😂", "😍", "🤔", "😎", "😭", "😡", "👍", 
 
 @checker.putnoise(0)
 async def putnoise_store1(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store1|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store1|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     message = ''.join([
@@ -623,7 +633,7 @@ async def putnoise_store1(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapte
 
 @checker.getnoise(0)
 async def getnoise_store1(task: GetnoiseCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store1|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store1|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     message = ''.join([
@@ -660,7 +670,7 @@ async def getnoise_store1(task: GetnoiseCheckerTaskMessage, logger: LoggerAdapte
 
 @checker.putnoise(1)
 async def putnoise_store2(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
@@ -696,7 +706,7 @@ async def putnoise_store2(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapte
 
 @checker.getnoise(1)
 async def getnoise_store2(task: GetnoiseCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient, db: ChainDB) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|noise_store2|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
@@ -730,7 +740,7 @@ async def getnoise_store2(task: GetnoiseCheckerTaskMessage, logger: LoggerAdapte
 
 @checker.havoc(0)
 async def havoc_store1(task: HavocCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|havoc_store1|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|havoc_store1|" + str(getattr(task, CHECKER_SEED_KEY)))
     username_a = gen.genStr(gen.genInt(8,12))
     password_a = gen.genStr(gen.genInt(12,16))
     username_b = gen.genStr(gen.genInt(8,12))
@@ -817,7 +827,7 @@ async def havoc_store1(task: HavocCheckerTaskMessage, logger: LoggerAdapter, cli
 
 @checker.havoc(1)
 async def havoc_store2(task: HavocCheckerTaskMessage, logger: LoggerAdapter, client: AsyncClient) -> None:
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|havoc_store2|{task.task_id}")
+    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|havoc_store2|" + str(getattr(task, CHECKER_SEED_KEY)))
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.choice(["grof", "genimi", "ripbard", "chatgtp", "oh4", "cocapten"]) + gen.genStr(gen.genInt(8,12))
@@ -953,7 +963,8 @@ async def exploit_store1_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     if storetype != 'username':
         raise MumbleException("Exploit: Wrong flagstore")
 
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store1_c|{task.task_id}")
+    #gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store1_c|" + str(getattr(task, CHECKER_SEED_KEY)))
+    gen = RandomGenerator()
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.genStr(gen.genInt(8,12))
@@ -1020,7 +1031,7 @@ async def exploit_store2_a(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     text = None
     try:
         code = json.loads(code)
-        text = ' '.join([v for v in code.values() if isinstance(v, str)])
+        text = ' '.join([v for v in code.values() if isinstance(v, str)]) + " "
     except Exception as e:
         logger.error(f"The bot code returned is not valid:\n{e}")
         raise MumbleException("Faulty bot code returned")
@@ -1048,7 +1059,7 @@ async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     text = None
     try:
         code = json.loads(code)
-        text = ' '.join([v for v in code.values() if isinstance(v, str)])
+        text = ' '.join([v for v in code.values() if isinstance(v, str)]) + " "
     except Exception as e:
         logger.error(f"The bot code returned is not valid:\n{e}")
         raise MumbleException("Faulty bot code returned")
@@ -1084,7 +1095,7 @@ async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         text = None
         try:
             code = json.loads(code)
-            text = ' '.join([v for v in code.values() if isinstance(v, str)])
+            text = ' '.join([v for v in code.values() if isinstance(v, str)]) + " "
         except Exception as e:
             logger.error(f"The bot code returned is not valid:\n{e}")
             raise MumbleException("Faulty bot code returned")
@@ -1104,7 +1115,8 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     if storetype != 'botname':
         raise MumbleException("Exploit: Wrong flagstore")
 
-    gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store2_d|{task.task_id}")
+    #gen = RandomGenerator(seed=f"{CHECKER_ENTROPY_SECRET_SEED}|exploit_store2_d|" + str(getattr(task, CHECKER_SEED_KEY)))
+    gen = RandomGenerator()
     username = gen.genStr(gen.genInt(8,12))
     password = gen.genStr(gen.genInt(12,16))
     botname = gen.genStr(gen.genInt(8,12))
@@ -1130,7 +1142,7 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
         }
         do_socket_setcode(logger, socket, code)
 
-    logger.debug(f"botname: {botname}")
+    logger.debug(f"Exploiting json injection vulnerability targetin botname:{target_botname} by forging botname:{botname}")
 
     await do_send(logger, client, botname, 'any', token)
     msgs = await do_get_inbox(logger, client, token)
@@ -1151,7 +1163,7 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
             continue
         try:
             code = json.loads(code)
-            text += ' '.join([v for v in code.values() if isinstance(v, str)])
+            text += ' '.join([v for v in code.values() if isinstance(v, str)]) + " "
         except Exception as e:
             logger.error(f"The bot code returned is not valid:\n{e}")
             raise MumbleException("Faulty bot code returned")
