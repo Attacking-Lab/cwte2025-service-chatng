@@ -9,7 +9,7 @@ services:
       - ./files/index.html:/usr/share/nginx/html/index.html:ro
     ports:
       - "3443:443"
-    restart: always
+    restart: unless-stopped
     depends_on:
       - backend
 
@@ -28,7 +28,7 @@ services:
       - ./files:/data/files
     expose:
       - "3080:8080/tcp"
-    restart: always
+    restart: unless-stopped
     depends_on:
       - db
 
@@ -41,7 +41,7 @@ services:
       - ./files:/data/files
     ports:
       - "31337:9000/tcp"
-    restart: always
+    restart: unless-stopped
     depends_on:
       - db
 
@@ -52,7 +52,7 @@ services:
       - MONGO_INITDB_DATABASE=chatng
     volumes:
       - dbdata:/data/db
-    restart: always
+    restart: unless-stopped
 networks:
   default:
     name: chatng

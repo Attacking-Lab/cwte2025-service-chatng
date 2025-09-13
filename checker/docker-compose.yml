@@ -2,6 +2,7 @@ services:
   checker:
     container_name: chatng-checker
     build: .
+    restart: unless-stopped
     ports:
       - 9000:9000
     environment:
@@ -14,6 +15,7 @@ services:
     container_name: chatng-mongo
     image: mongo
     command: mongod --port 27017
+    restart: unless-stopped
     ports:
       - 27017:27017
     volumes:
