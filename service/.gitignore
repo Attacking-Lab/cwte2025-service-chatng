@@ -1,2 +1,6 @@
 __pycache__
 venv
+files/bots/*
+!files/bots/.keep
+files/uploads/
+!files/uploads/.keep
