@@ -1,3 +1,4 @@
+name: chatng-checker
 services:
   checker:
     container_name: chatng-checker
