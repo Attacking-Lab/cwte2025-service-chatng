@@ -2,7 +2,10 @@ name: chatng-checker
 services:
   checker:
     container_name: chatng-checker
-    build: .
+    build:
+      context: .
+      secrets:
+        - github-pat
     restart: unless-stopped
     ports:
       - 9000:9000
@@ -12,6 +15,7 @@ services:
       - MONGO_PORT=27017
       - MONGO_USER=chatng_checker
       - MONGO_PASSWORD=chatng_checker
+
   mongo:
     container_name: chatng-mongo
     image: mongo
@@ -24,9 +28,15 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: chatng_checker
       MONGO_INITDB_ROOT_PASSWORD: chatng_checker
+
 networks:
   default:
     name: chatng-checker
+
 volumes:
   data:
     name: chatng-chaindb
+
+secrets:
+  github-pat:
+    environment: GITHUB_PAT
