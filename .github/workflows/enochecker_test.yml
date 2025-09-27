@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    runs-on: dink-external
+    runs-on: dink-internal
     env:
       ENOCHECKER_CHECKER_PORT: 9000
     steps:
