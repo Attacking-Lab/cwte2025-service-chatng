@@ -1,3 +1,5 @@
+name: chatng
+
 services:
   proxy:
     container_name: chatng-proxy
@@ -53,9 +55,11 @@ services:
     volumes:
       - dbdata:/data/db
     restart: unless-stopped
+
 networks:
   default:
     name: chatng
+
 volumes:
   dbdata:
     name: chatng-database
