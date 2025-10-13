@@ -27,8 +27,6 @@ The first flag store is on the messages of the user to his/her self. (Alternativ
 
 The second flag store is on the codes of the bots.
 
-...
-
 Vulnerabilities
 ---------------
 
@@ -57,50 +55,4 @@ Overview of the vulnerabilities:
     - vulnerability on proxy (path traversal)
         - /static../bots/botname.code
 
-
-### Flag Store 1, Vuln 1
-
-    <!--
-    Short description of the vuln and how to exploit it
-    -->
-
-* Difficulty: easy
-* Discoverability: hard
-* Patchability: medium
-* Categories: misc
-
-### Flag Store 1, Vuln M
-
-...
-
-### Flag Store N, Vuln 1
-
-...
-
-### Flag Store N, Vuln K
-
-...
-
-Patches
--------
-
-    <!--
-    For each of the vulnerabilities reported in the previous section, outline a
-    possible fix, can use diff files here to visualize changes but a text
-    explanation is also required)
-    -->
-
-### Flag Store 1, Vuln 1
-
-...
-
-### Flag Store 1, Vuln M
-
-...
-
-### Flag Store N, Vuln 1
-
-...
-
-### Flag Store N, Vuln K
 
